@@ -1,0 +1,59 @@
+version: "3.9"
+
+services:
+  database:
+    image: postgres:16-alpine
+    environment:
+      # These come from the shared .env file
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    # DevOps: do not expose DB to host; only internal containers can reach it.
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DB_HOST: database
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      JWT_SECRET: ${JWT_SECRET}
+    depends_on:
+      - database
+    # DevOps: no host port mapping. Backend is private; Nginx is public entrypoint.
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+    volumes:
+      # DevOps: named volume shares built assets with Nginx without rebuilding there.
+      - frontend_build:/frontend-dist
+    depends_on:
+      - backend
+    # DevOps: this is a one-shot build container, it does not need to restart.
+    restart: "no"
+
+  nginx:
+    image: nginx:1.27-alpine
+    depends_on:
+      - backend
+      - frontend
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - frontend_build:/usr/share/nginx/html:ro
+    ports:
+      # DevOps: only public entrypoint; all external traffic goes through Nginx on 80.
+      - "80:80"
+    restart: unless-stopped
+
+volumes:
+  db_data:
+  frontend_build:
+
